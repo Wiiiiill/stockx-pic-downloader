@@ -24,6 +24,80 @@
   }
 
   /**
+   * @param {string} [headerValue] Content-Type 等，可带 charset
+   * @returns {string}
+   */
+  function parseMimeType(headerValue) {
+    if (!headerValue) return "";
+    return headerValue.split(";")[0].trim().toLowerCase();
+  }
+
+  /** @param {string} mime */
+  function extensionFromImageMime(mime) {
+    if (!mime) return null;
+    const map = {
+      "image/jpeg": "jpg",
+      "image/jpg": "jpg",
+      "image/pjpeg": "jpg",
+      "image/png": "png",
+      "image/gif": "gif",
+      "image/webp": "webp",
+      "image/avif": "avif",
+      "image/bmp": "bmp",
+      "image/svg+xml": "svg",
+      "image/x-icon": "ico",
+      "image/vnd.microsoft.icon": "ico",
+    };
+    return map[mime] || null;
+  }
+
+  /** @param {string} filename */
+  function stripFilenameExtension(filename) {
+    const i = filename.lastIndexOf(".");
+    if (i <= 0) return filename;
+    return filename.slice(0, i);
+  }
+
+  /**
+   * 路径最后一段去掉后缀，用作下载主名。
+   * @param {string} url
+   * @returns {string}
+   */
+  function basenameStemFromUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      const last = urlObj.pathname.split("/").pop() || "download";
+      return stripFilenameExtension(decodeURIComponent(last));
+    } catch {
+      return "download";
+    }
+  }
+
+  /**
+   * 结合响应类型决定下载文件名后缀（避免 URL 写 .jpg 实为 avif 等问题）。
+   * @param {Response} response
+   * @param {Blob} blob
+   * @param {string} requestUrl
+   * @returns {string}
+   */
+  function resolveDownloadFilename(response, blob, requestUrl) {
+    const mime =
+      parseMimeType(blob.type) ||
+      parseMimeType(response.headers.get("Content-Type"));
+    const ext = extensionFromImageMime(mime);
+
+    const fromHeader = getFilenameFromResponse(response);
+    if (fromHeader) {
+      if (ext) return `${stripFilenameExtension(fromHeader)}.${ext}`;
+      return fromHeader;
+    }
+
+    const stem = basenameStemFromUrl(requestUrl);
+    if (ext) return `${stem}.${ext}`;
+    return getFilenameFromUrl(requestUrl);
+  }
+
+  /**
    * @param {string} url
    * @param {Document} [documentRef]
    * @returns {Promise<void>}
@@ -35,9 +109,8 @@
       if (!response.ok) {
         throw new Error(`下载失败: ${response.status} ${response.statusText}`);
       }
-      let filename =
-        getFilenameFromResponse(response) || getFilenameFromUrl(url);
       const blob = await response.blob();
+      const filename = resolveDownloadFilename(response, blob, url);
       const blobUrl = globalThis.URL.createObjectURL(blob);
       const link = doc.createElement("a");
       link.href = blobUrl;
@@ -151,6 +224,9 @@
       downloadImage(url, documentRef ?? globalThis.document),
     getFilenameFromResponse,
     getFilenameFromUrl,
+    parseMimeType,
+    extensionFromImageMime,
+    resolveDownloadFilename,
     withImageDpr,
     buildImageDownloadUrls,
     getStockxProductImageUrls,

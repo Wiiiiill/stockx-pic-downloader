@@ -30,7 +30,8 @@
   - `DEFAULT_IMAGE_DPR`（当前为 **3**）、`withImageDpr(href, dpr?)` 用于给图片链接加上 `dpr` 参数
   - `getStockxProductImageUrls(documentOrRoot?, { dpr? })` → `{ urls, isThreeSixty, mainImageSrc, picContainer } | null`（`urls` 默认带 `dpr=3`）
   - `buildImageDownloadUrls(mainImageSrc, isThreeSixty, { dpr? })` → `string[]`
-  - `downloadImage(url[, document])`
+  - `downloadImage(url[, document])` — 保存名按 **`blob` / `Content-Type` 的实际图片类型** 决定后缀（如 avif、webp），不再盲信 URL 里的 `.jpg`
+  - `resolveDownloadFilename(response, blob, url)` / `extensionFromImageMime(mime)` / `parseMimeType(header)`
   - `getFilenameFromResponse(response)` / `getFilenameFromUrl(url)`
   - `staggerDownloadImages(urls[, document[, gapMs]])` — 按间隔依次调用 `downloadImage`
 - **`stockx-pic-downloader.js`**：Tampermonkey 元数据 + **页面 UI 与交互**（选节点、样式同步、MutationObserver、`history` 等），内部调用上述 core API。
