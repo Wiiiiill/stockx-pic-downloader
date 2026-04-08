@@ -7,6 +7,7 @@
 // @match        https://stockx.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=stockx.com
 // @grant        none
+// @run-at      document-end
 // @homepageURL  https://github.com/Wiiiiill/stockx-pic-downloader
 // @supportURL   https://github.com/Wiiiiill/stockx-pic-downloader/issues
 // @downloadURL  https://raw.githubusercontent.com/Wiiiiill/stockx-pic-downloader/main/stockx-pic-downloader.js
@@ -96,41 +97,93 @@ function getFilenameFromUrl(url) {
   }
 }
 
-window.onload = () => {
-  const picContainer = document.querySelector('[data-component="SingleImage"]');
-  const isThreeSixtyImage = !!picContainer.querySelector("#three-sixty-image");
+/** 无刷新切商品时：用「当前地址 + 主图 src」判断要不要重建按钮 */
+const DOWNLOADER_UI_ID = "stockx-pic-downloader-root";
 
+let debounceId = 0;
+function scheduleDownloadUiUpdate() {
+  clearTimeout(debounceId);
+  debounceId = setTimeout(updateDownloadUi, 120);
+}
+
+function updateDownloadUi() {
+  const picContainer = document.querySelector('[data-component="SingleImage"]');
+  const buyContainer = document.querySelector('[data-testid="BuyContainer"]');
+  const buyAnchors = buyContainer?.querySelectorAll("a");
+  const styleAnchor = buyAnchors?.[buyAnchors.length - 1];
+  const picLeadEl = picContainer?.firstElementChild;
+  const img = picContainer?.querySelector("img");
+
+  if (!picContainer || !buyContainer || !styleAnchor || !picLeadEl || !img?.src) {
+    document.getElementById(DOWNLOADER_UI_ID)?.remove();
+    return;
+  }
+
+  const boundKey = `${location.href}\0${img.src}`;
+  const parentEl = picContainer.parentElement;
+  const existing = document.getElementById(DOWNLOADER_UI_ID);
+  if (
+    existing &&
+    existing.dataset.boundKey === boundKey &&
+    existing.isConnected &&
+    existing.parentElement === parentEl
+  ) {
+    return;
+  }
+
+  existing?.remove();
+
+  const isThreeSixtyImage = !!picContainer.querySelector("#three-sixty-image");
   const btnContainer = document.createElement("div");
-  btnContainer.classList.add(picContainer.classList.value);
+  btnContainer.id = DOWNLOADER_UI_ID;
+  btnContainer.dataset.boundKey = boundKey;
+  btnContainer.classList.add(...picContainer.classList);
+
   const btn = document.createElement("button");
   btn.id = "download-pic";
-  btn.classList.add(
-    ...Array.from(
-      document
-        .querySelector(`[data-testid="BuyContainer"`)
-        .querySelectorAll("a"),
-    )
-      .pop()
-      .classList.value.split(" "),
-    picContainer.firstChild.classList.value,
-  );
-  btn.textContent = `Download ${isThreeSixtyImage ? "Pics" : "Pic"}`;
+  btn.classList.add(...styleAnchor.classList, ...picLeadEl.classList);
+  btn.textContent = isThreeSixtyImage ? "Download Pics" : "Download Pic";
   btn.onclick = () => {
-    let urls = [];
-    const t = picContainer.querySelector("img").src.split("?")[0];
-    if (isThreeSixtyImage) {
-      let tt = t.split("/");
-      tt.pop();
-      tt = tt.join("/");
-      for (let i = 1; i <= 36; i++) {
-        urls.push(`${tt}/img${("0" + i).slice(-2)}.jpg`);
-      }
-    } else {
-      urls.push(t);
-    }
-    for (let i = 0; i < urls.length; i++)
-      setTimeout(() => downloadImage(urls[i]), i * 500);
+    const base = picContainer.querySelector("img").src.split("?")[0];
+    const urls = isThreeSixtyImage
+      ? Array.from({ length: 36 }, (_, i) => {
+          const parts = base.split("/");
+          parts.pop();
+          return `${parts.join("/")}/img${String(i + 1).padStart(2, "0")}.jpg`;
+        })
+      : [base];
+    urls.forEach((url, i) => setTimeout(() => downloadImage(url), i * 500));
   };
+
   btnContainer.appendChild(btn);
-  picContainer.parentElement.appendChild(btnContainer);
-};
+  parentEl?.appendChild(btnContainer);
+}
+
+function initDownloadUi() {
+  new MutationObserver(scheduleDownloadUiUpdate).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  window.addEventListener("popstate", scheduleDownloadUiUpdate);
+  const push = history.pushState;
+  const replace = history.replaceState;
+  history.pushState = function (...args) {
+    const ret = push.apply(this, args);
+    scheduleDownloadUiUpdate();
+    return ret;
+  };
+  history.replaceState = function (...args) {
+    const ret = replace.apply(this, args);
+    scheduleDownloadUiUpdate();
+    return ret;
+  };
+
+  scheduleDownloadUiUpdate();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initDownloadUi);
+} else {
+  initDownloadUi();
+}
