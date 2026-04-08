@@ -22,6 +22,20 @@
 
 也可在 Tampermonkey 中新建脚本，将本仓库根目录的 `stockx-pic-downloader.js` 全文复制进去并保存（与链接安装相比，通常不易自动获取更新）。
 
+脚本会通过 `@require` 加载同仓库的 [`stockx-pic-core.js`](stockx-pic-core.js)；若你 fork 了项目，请把 `@require` 里的 GitHub 地址改成你的 raw 链接，或本地调试时用 Tampermonkey 允许的本地 `@require`。
+
+## 核心逻辑与扩展
+
+- **`stockx-pic-core.js`**：「从详情页读出商品图 URL（单主图或 360°）+ 下载 + 文件名」；**不包含**按钮、路由监听。注入后存在全局 **`StockxPicCore`**：
+  - `getStockxProductImageUrls(documentOrRoot?)` → `{ urls, isThreeSixty, mainImageSrc, picContainer } | null`
+  - `buildImageDownloadUrls(mainImageSrc, isThreeSixty)` → `string[]`（已知主图 src 与是否 360 时可直接用）
+  - `downloadImage(url[, document])`
+  - `getFilenameFromResponse(response)` / `getFilenameFromUrl(url)`
+  - `staggerDownloadImages(urls[, document[, gapMs]])` — 按间隔依次调用 `downloadImage`
+- **`stockx-pic-downloader.js`**：Tampermonkey 元数据 + **页面 UI 与交互**（选节点、样式同步、MutationObserver、`history` 等），内部调用上述 core API。
+
+要做浏览器扩展时：只复用 **`stockx-pic-core.js`**，在扩展里自行实现 UI、入口和页面生命周期；需要排队下载时用 `staggerDownloadImages`，或自行 `await downloadImage`。
+
 ## 使用
 
 1. 打开任意 StockX 商品详情页，等待页面加载完成。
