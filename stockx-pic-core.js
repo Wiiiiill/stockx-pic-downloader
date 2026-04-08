@@ -7,6 +7,22 @@
 (function () {
   "use strict";
 
+  const DEFAULT_IMAGE_DPR = 3;
+
+  /**
+   * 为 StockX 图片 URL 设置 dpr 查询参数（会覆盖已有 dpr）。
+   *
+   * @param {string} href 绝对地址（可无 query）
+   * @param {number} [dpr=DEFAULT_IMAGE_DPR]
+   * @returns {string}
+   */
+  function withImageDpr(href, dpr) {
+    const n = dpr ?? DEFAULT_IMAGE_DPR;
+    const u = new URL(href);
+    u.searchParams.set("dpr", String(n));
+    return u.href;
+  }
+
   /**
    * @param {string} url
    * @param {Document} [documentRef]
@@ -71,36 +87,40 @@
   }
 
   /**
-   * 根据商品主图 URL（与是否为 360°）生成待下载的图片 URL 列表。
+   * 根据商品主图 URL（与是否为 360°）生成待下载的图片 URL 列表（均带 dpr）。
    *
-   * @param {string} mainImageSrc 页面里主图 img 的 src（可带查询串）
+   * @param {string} mainImageSrc 页面里主图 img 的 src（可带查询串，路径以无 query 部分推导）
    * @param {boolean} isThreeSixty 是否 360° 序列图
+   * @param {{ dpr?: number }} [options] 默认 dpr 为 3
    * @returns {string[]}
    */
-  function buildImageDownloadUrls(mainImageSrc, isThreeSixty) {
+  function buildImageDownloadUrls(mainImageSrc, isThreeSixty, options) {
+    const dpr = options?.dpr ?? DEFAULT_IMAGE_DPR;
     const base = mainImageSrc.split("?")[0];
-    if (!isThreeSixty) return [base];
+    if (!isThreeSixty) return [withImageDpr(base, dpr)];
     return Array.from({ length: 36 }, (_, i) => {
       const parts = base.split("/");
       parts.pop();
-      return `${parts.join("/")}/img${String(i + 1).padStart(2, "0")}.jpg`;
+      const frame = `${parts.join("/")}/img${String(i + 1).padStart(2, "0")}.jpg`;
+      return withImageDpr(frame, dpr);
     });
   }
 
   /**
-   * 从 StockX 商品详情 DOM 读取当前商品图：单张主图或 360° 共 36 张的直链列表。
+   * 从 StockX 商品详情 DOM 读取当前商品图：单张主图或 360° 共 36 张的直链列表（均带 dpr）。
    *
    * @param {Document|Element} [root] 查找起点，默认当前 document
+   * @param {{ dpr?: number }} [options] 下载用 dpr，默认 3
    * @returns {{ urls: string[], isThreeSixty: boolean, mainImageSrc: string, picContainer: Element } | null}
    */
-  function getStockxProductImageUrls(root) {
+  function getStockxProductImageUrls(root, options) {
     const base = root || globalThis.document;
     const picContainer = base.querySelector('[data-component="SingleImage"]');
     if (!picContainer) return null;
     const img = picContainer.querySelector("img");
     if (!img?.src) return null;
     const isThreeSixty = !!picContainer.querySelector("#three-sixty-image");
-    const urls = buildImageDownloadUrls(img.src, isThreeSixty);
+    const urls = buildImageDownloadUrls(img.src, isThreeSixty, options);
     return {
       urls,
       isThreeSixty,
@@ -126,10 +146,12 @@
   }
 
   globalThis.StockxPicCore = {
+    DEFAULT_IMAGE_DPR,
     downloadImage: (url, documentRef) =>
       downloadImage(url, documentRef ?? globalThis.document),
     getFilenameFromResponse,
     getFilenameFromUrl,
+    withImageDpr,
     buildImageDownloadUrls,
     getStockxProductImageUrls,
     staggerDownloadImages,

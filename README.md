@@ -27,8 +27,9 @@
 ## 核心逻辑与扩展
 
 - **`stockx-pic-core.js`**：「从详情页读出商品图 URL（单主图或 360°）+ 下载 + 文件名」；**不包含**按钮、路由监听。注入后存在全局 **`StockxPicCore`**：
-  - `getStockxProductImageUrls(documentOrRoot?)` → `{ urls, isThreeSixty, mainImageSrc, picContainer } | null`
-  - `buildImageDownloadUrls(mainImageSrc, isThreeSixty)` → `string[]`（已知主图 src 与是否 360 时可直接用）
+  - `DEFAULT_IMAGE_DPR`（当前为 **3**）、`withImageDpr(href, dpr?)` 用于给图片链接加上 `dpr` 参数
+  - `getStockxProductImageUrls(documentOrRoot?, { dpr? })` → `{ urls, isThreeSixty, mainImageSrc, picContainer } | null`（`urls` 默认带 `dpr=3`）
+  - `buildImageDownloadUrls(mainImageSrc, isThreeSixty, { dpr? })` → `string[]`
   - `downloadImage(url[, document])`
   - `getFilenameFromResponse(response)` / `getFilenameFromUrl(url)`
   - `staggerDownloadImages(urls[, document[, gapMs]])` — 按间隔依次调用 `downloadImage`
