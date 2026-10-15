@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         stockx-pic-downloader
 // @namespace    http://tampermonkey.net/
-// @version      2026-04-08.3
+// @version      2026-10-15.1
 // @description  stockx-pic-downloader
 // @author       https://github.com/Wiiiiill
 // @match        https://stockx.com/*
@@ -22,10 +22,60 @@
 
   function scheduleDownloadUiUpdate(win, doc, state) {
     win.clearTimeout(state.debounceId);
-    state.debounceId = win.setTimeout(() => updateDownloadUi(win, doc), 120);
+    state.debounceId = win.setTimeout(() => updateDownloadUi(win, doc, state), 120);
   }
 
-  function updateDownloadUi(win, doc) {
+  /** @param {{ isThreeSixty: boolean }} pack */
+  function idleLabel(pack) {
+    return pack.isThreeSixty ? "Download Pics" : "Download Pic";
+  }
+
+  /**
+   * 触发一批下载，并在按钮上实时显示进度与落地尺寸，下完把结果留在按钮上。
+   *
+   * 「偏小」把所有没到 {@link StockxPicCore.MAX_SOURCE_WIDTH} 的都算上：
+   * 源图确实偏小、和剥离 query 那步被改坏（会固定掉到 1536），
+   * 光看宽度分不出来，但都属于使用者该知道的情况，靠按钮上显示的具体数字区分。
+   *
+   * @param {Document} doc
+   * @param {HTMLButtonElement} btn
+   * @param {{ urls: string[], isThreeSixty: boolean }} pack
+   * @param {{ downloading: boolean }} state
+   */
+  function startDownload(doc, btn, pack, state) {
+    if (state.downloading) return;
+    state.downloading = true;
+
+    const total = pack.urls.length;
+    let sizeLabel = "";
+    let small = 0;
+
+    btn.disabled = true;
+    btn.textContent = `下载中 0/${total}`;
+
+    StockxPicCore.staggerDownloadImages(pack.urls, doc, undefined, {
+      onProgress: ({ finished, result }) => {
+        btn.textContent = `下载中 ${finished}/${total}`;
+        if (!result) return;
+        if (!sizeLabel) sizeLabel = `${result.width}×${result.height}`;
+        if (StockxPicCore.assessImageQuality(result.width) !== "max") {
+          small += 1;
+        }
+      },
+      onDone: ({ total: done, failed }) => {
+        state.downloading = false;
+        btn.disabled = false;
+        const ok = done - failed - small;
+        const bad = failed + small;
+        btn.textContent =
+          bad === 0
+            ? `已存 ${ok} 张 · ${sizeLabel}`
+            : `已存 ${ok} 张 · ${bad} 张偏小 ⚠️`;
+      },
+    });
+  }
+
+  function updateDownloadUi(win, doc, state) {
     const pack = StockxPicCore.getStockxProductImageUrls(doc);
     const buyContainer = doc.querySelector('[data-testid="BuyContainer"]');
     const buyAnchors = buyContainer?.querySelectorAll("a");
@@ -51,6 +101,8 @@
     }
 
     existing?.remove();
+    // 换商品会重建按钮，上一批的责任随之结束
+    state.downloading = false;
 
     const btnContainer = doc.createElement("div");
     btnContainer.id = DOWNLOADER_UI_ID;
@@ -60,10 +112,10 @@
     const btn = doc.createElement("button");
     btn.id = "download-pic";
     btn.classList.add(...styleAnchor.classList, ...picLeadEl.classList);
-    btn.textContent = pack.isThreeSixty ? "Download Pics" : "Download Pic";
+    btn.textContent = idleLabel(pack);
     btn.onclick = () => {
-      const p = StockxPicCore.getStockxProductImageUrls(doc);
-      if (p) StockxPicCore.staggerDownloadImages(p.urls, doc);
+      const current = StockxPicCore.getStockxProductImageUrls(doc);
+      if (current) startDownload(doc, btn, current, state);
     };
 
     btnContainer.appendChild(btn);
@@ -73,7 +125,7 @@
   function startTampermonkeyUi(win) {
     const doc = win.document;
     const hist = win.history;
-    const state = { debounceId: 0 };
+    const state = { debounceId: 0, downloading: false };
 
     const run = () => scheduleDownloadUiUpdate(win, doc, state);
     const observer = new win.MutationObserver(run);
