@@ -301,6 +301,94 @@
   }
 
   /**
+   * 画廊里的一组图。`360` 是一整个转盘（36 帧），`image` 是单张。
+   * @typedef {{ kind: "360"|"image", urls: string[] }} GalleryGroup
+   */
+
+  /**
+   * 从画廊缩略图反推大图地址。
+   *
+   * 缩略图的 src **就是大图地址**，只是被塞了 `w=78&h=56` 之类的参数；
+   * 跟 360 那条同理，必须整个剥掉再换 dpr —— 留着 w/h 只会拿到 78 宽。
+   *
+   * @param {string} thumbSrc
+   * @param {number} dpr
+   * @returns {string}
+   */
+  function galleryImageUrlFromThumb(thumbSrc, dpr) {
+    return withImageDpr(thumbSrc.split("?")[0], dpr);
+  }
+
+  /**
+   * 360 图组缓存。
+   *
+   * 未选中的 TabPanel 是**空的**（内容点开才渲染），用户切到别的 tab 后就读不到 360 那格了。
+   * 所以第一次读到就按页面路径缓存下来，之后同一路径直接复用。
+   * 键用 location.pathname：换商品一定会换 URL，比拿商品名猜靠谱。
+   */
+  let cachedThreeSixty = { path: null, urls: [] };
+
+  /**
+   * 读出商品画廊里的**全部图组**（360 / 单图 / 包装盒图）。
+   *
+   * 商品页有两种结构：
+   *   - 新版 `[data-testid="MultiImage"]`：tab 画廊，每个 tab 一组图
+   *   - 老版 `[data-component="SingleImage"]`：只有一张单图或一个 360
+   * 优先走新版，没有就回落 —— 老页面行为完全不变。
+   *
+   * 新版**不能读面板取图**：未选中的 TabPanel 是空的，所以图 URL 从 tablist 的缩略图上取。
+   * 360 那格的缩略图是个通用图标（stockx-assets 下的 gallery_360.jpg），拿不到真图，
+   * 只能从它的面板里读 —— 面板在时就顺手缓存。
+   *
+   * @param {Document|Element} [root] 查找起点，默认当前 document
+   * @param {{ dpr?: number }} [options]
+   * @returns {GalleryGroup[]} 没找到商品图时返回空数组
+   */
+  function getStockxGalleryGroups(root, options) {
+    const base = root || globalThis.document;
+    const dpr = options?.dpr ?? DEFAULT_IMAGE_DPR;
+    const path = globalThis.location?.pathname ?? null;
+
+    const multi = base.querySelector('[data-testid="MultiImage"]');
+    if (multi) {
+      const groups = [];
+      const tabs = Array.from(multi.querySelectorAll('[role="tab"]'));
+
+      // 360 那格：面板在就读它并缓存；面板不在（用户切走了）就用缓存
+      const threeSixtyPanel = multi.querySelector("#three-sixty-image");
+      const threeSixtyImg = threeSixtyPanel?.querySelector("img");
+      if (threeSixtyImg?.src) {
+        cachedThreeSixty = {
+          path,
+          urls: buildImageDownloadUrls(threeSixtyImg.src, true, { dpr }),
+        };
+      }
+      if (cachedThreeSixty.path === path && cachedThreeSixty.urls.length) {
+        groups.push({ kind: "360", urls: cachedThreeSixty.urls.slice() });
+      }
+
+      tabs.forEach((tab) => {
+        const thumb = tab.querySelector("img");
+        const src = thumb?.currentSrc || thumb?.src || "";
+        // 360 那格的缩略图是通用图标，不是真图；它已经由上面处理过了
+        if (!src || src.includes("stockx-assets.imgix.net")) return;
+        groups.push({ kind: "image", urls: [galleryImageUrlFromThumb(src, dpr)] });
+      });
+
+      if (groups.length) return groups;
+    }
+
+    const single = getStockxProductImageUrls(base, options);
+    if (!single) return [];
+    return [
+      {
+        kind: single.isThreeSixty ? "360" : "image",
+        urls: single.urls,
+      },
+    ];
+  }
+
+  /**
    * 按间隔依次触发下载（无 UI，仅调度）。
    *
    * @param {string[]} urls
@@ -361,6 +449,8 @@
     withImageDpr,
     buildImageDownloadUrls,
     getStockxProductImageUrls,
+    getStockxGalleryGroups,
+    galleryImageUrlFromThumb,
     staggerDownloadImages,
   };
 })();
